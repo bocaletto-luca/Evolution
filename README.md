@@ -2,6 +2,8 @@
 
 An interactive, one-page web game simulating cellular automata evolution through 10 progressively challenging levels. Built with HTML5, CSS3 (Tailwind), and vanilla JavaScript, this responsive game invites you to explore emergent patterns and tweak cell behavior in real time.
 
+[![Live Demo](https://img.shields.io/badge/Live-Demo-blue?style=for-the-badge)](https://bocaletto-luca.github.io/Evolution/index.html)
+
 ---
 
 ## 🚀 Features

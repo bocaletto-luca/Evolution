@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Evoluzione Cellulare – Game</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Overlay semi‐trasparente */
+    .overlay {
+      background: rgba(0, 0, 0, 0.8);
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen">
+
+  <!-- Contenitore del gioco -->
+  <div id="game-container" class="relative">
+
+    <!-- Canvas -->
+    <canvas id="gameCanvas" class="border-4 border-gray-700 rounded-lg"></canvas>
+
+    <!-- Overlay per livelli -->
+    <div id="overlayLevel" class="hidden overlay absolute inset-0 flex items-center justify-center p-6">
+      <div class="bg-gray-800 p-8 rounded-lg max-w-lg text-center">
+        <h2 id="level-title" class="text-2xl font-semibold mb-4"></h2>
+        <p id="level-desc" class="mb-6"></p>
+        <button id="nextBtn"
+                class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
+          Avvia Livello
+        </button>
+      </div>
+    </div>
+
+    <!-- Overlay Help -->
+    <div id="overlayHelp" class="hidden overlay absolute inset-0 flex items-center justify-center p-6">
+      <div class="bg-gray-800 p-8 rounded-lg max-w-lg text-left">
+        <h2 class="text-2xl font-semibold mb-4">Come si gioca</h2>
+        <p class="mb-4">
+          Ogni cella vive o muore in base al numero di vicini:
+          nasce se ha <strong>nascita</strong> e sopravvive se ha <strong>sopravvivenza</strong>.<br/>
+          Esplora i livelli con regole diverse e osserva i pattern emergenti.
+        </p>
+        <h3 class="font-semibold mb-2">Comandi</h3>
+        <ul class="list-disc list-inside mb-6 text-sm">
+          <li><strong>Click/tap</strong>: accendi/spegni una cella.</li>
+          <li><strong>Play/Pausa</strong>: avvia o ferma l’animazione.</li>
+          <li><strong>Step</strong>: un singolo tick quando sei in pausa.</li>
+          <li><strong>Next Level</strong>: passa subito al livello successivo.</li>
+          <li><strong>Velocità</strong>: regola il frame‐rate con lo slider.</li>
+        </ul>
+        <button id="closeHelpBtn"
+                class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded">
+          Chiudi Help
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Controlli di gioco -->
+  <div id="controls" class="mt-6 flex flex-wrap gap-2 justify-center">
+    <button id="playPauseBtn"
+            class="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded">
+      Pausa
+    </button>
+    <button id="stepBtn"
+            class="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 rounded">
+      Step
+    </button>
+    <button id="nextLevelBtn"
+            class="px-4 py-2 bg-purple-500 hover:bg-purple-600 rounded">
+      Prossimo Livello
+    </button>
+    <label class="flex items-center gap-2 text-sm">
+      Velocità
+      <input id="speedRange" type="range" min="1" max="60" value="30" />
+    </label>
+    <button id="helpBtn"
+            class="px-4 py-2 bg-gray-500 hover:bg-gray-600 rounded">
+      Help
+    </button>
+  </div>
+
+  <script>
+    // riferimento canvas
+    const canvas = document.getElementById('gameCanvas');
+    const ctx    = canvas.getContext('2d');
+
+    // dimensioni e griglia
+    const w      = 800, h = 600;
+    const cols   = 80, rows = 60;
+    const cellW  = w / cols, cellH = h / rows;
+    canvas.width  = w;
+    canvas.height = h;
+
+    // stato di gioco
+    let grid, nextGrid;
+    let levels = [];           // caricati da levels.json
+    let currentLevel = 0;
+    let isPaused = false;
+    let speedFPS = 30;
+    let gameTimeoutId;
+
+    // elementi DOM
+    const overlayLevel   = document.getElementById('overlayLevel');
+    const overlayHelp    = document.getElementById('overlayHelp');
+    const levelTitle     = document.getElementById('level-title');
+    const levelDesc      = document.getElementById('level-desc');
+    const nextBtn        = document.getElementById('nextBtn');
+    const helpBtn        = document.getElementById('helpBtn');
+    const closeHelpBtn   = document.getElementById('closeHelpBtn');
+    const playPauseBtn   = document.getElementById('playPauseBtn');
+    const stepBtn        = document.getElementById('stepBtn');
+    const nextLevelBtn   = document.getElementById('nextLevelBtn');
+    const speedRange     = document.getElementById('speedRange');
+
+    // carica i livelli da JSON
+    async function loadLevels() {
+      try {
+        const res = await fetch('levels.json');
+        levels = await res.json();
+        showLevelOverlay();
+      } catch (err) {
+        console.error('Errore caricamento levels.json', err);
+      }
+    }
+
+    // inizializza due matrici casuali
+    function initGrid() {
+      grid     = Array.from({length: rows}, () => Array(cols).fill(0));
+      nextGrid = Array.from({length: rows}, () => Array(cols).fill(0));
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          grid[r][c] = Math.random() < 0.3 ? 1 : 0;
+        }
+      }
+    }
+
+    // conta vicini vivi (bordo avvolgente)
+    function countNeighbors(r, c) {
+      let sum = 0;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nr = (r + dr + rows) % rows;
+          const nc = (c + dc + cols) % cols;
+          sum += grid[nr][nc];
+        }
+      }
+      return sum;
+    }
+
+    // un passo di simulazione
+    function step() {
+      const { birth, survive } = levels[currentLevel].rule;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const alive = grid[r][c] === 1;
+          const n     = countNeighbors(r, c);
+          nextGrid[r][c] = alive
+            ? (survive.includes(n) ? 1 : 0)
+            : (birth.includes(n)  ? 1 : 0);
+        }
+      }
+      [grid, nextGrid] = [nextGrid, grid];
+    }
+
+    // disegna lo stato
+    function draw() {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#4ade80';
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (grid[r][c] === 1) {
+            ctx.fillRect(c * cellW, r * cellH, cellW - 1, cellH - 1);
+          }
+        }
+      }
+    }
+
+    // loop animazione con controllo FPS
+    function loop() {
+      if (!isPaused) {
+        step();
+        draw();
+        gameTimeoutId = setTimeout(loop, 1000 / speedFPS);
+      }
+    }
+
+    // mostra overlay del livello corrente
+    function showLevelOverlay() {
+      isPaused = true;
+      playPauseBtn.textContent = 'Play';
+      clearTimeout(gameTimeoutId);
+      const lvl = levels[currentLevel];
+      levelTitle.textContent = lvl.title;
+      levelDesc.textContent  = lvl.desc;
+      overlayLevel.classList.remove('hidden');
+    }
+
+    // avvia il livello
+    function startLevel() {
+      overlayLevel.classList.add('hidden');
+      initGrid();
+      isPaused = false;
+      playPauseBtn.textContent = 'Pausa';
+      loop();
+    }
+
+    // passa al livello successivo o ricomincia
+    function advanceLevel() {
+      clearTimeout(gameTimeoutId);
+      currentLevel++;
+      if (currentLevel < levels.length) {
+        showLevelOverlay();
+      } else {
+        overlayLevel.classList.remove('hidden');
+        levelTitle.textContent = 'Complimenti!';
+        levelDesc.textContent  = 'Hai esplorato tutte le evoluzioni.';
+        nextBtn.textContent    = 'Ricomincia';
+        nextBtn.onclick        = () => {
+          currentLevel = 0;
+          nextBtn.textContent = 'Avvia Livello';
+          nextBtn.onclick     = startLevel;
+          showLevelOverlay();
+        };
+      }
+    }
+
+    // mostra/nasconde help
+    function showHelp() {
+      isPaused = true;
+      overlayHelp.classList.remove('hidden');
+    }
+    function hideHelp() {
+      overlayHelp.classList.add('hidden');
+    }
+
+    // eventi
+    window.onload       = loadLevels;
+    nextBtn.onclick     = startLevel;
+    helpBtn.onclick     = showHelp;
+    closeHelpBtn.onclick= hideHelp;
+    playPauseBtn.onclick= () => {
+      isPaused = !isPaused;
+      playPauseBtn.textContent = isPaused ? 'Play' : 'Pausa';
+      if (!isPaused) loop();
+      else clearTimeout(gameTimeoutId);
+    };
+    stepBtn.onclick     = () => {
+      if (isPaused) { step(); draw(); }
+    };
+    nextLevelBtn.onclick= advanceLevel;
+    speedRange.oninput  = () => { speedFPS = +speedRange.value; };
+
+    // toggle cella a click/tap
+    canvas.addEventListener('click', e => {
+      const c = Math.floor(e.offsetX / cellW);
+      const r = Math.floor(e.offsetY / cellH);
+      if (grid[r] && grid[r][c] !== undefined) {
+        grid[r][c] = grid[r][c] ? 0 : 1;
+        draw();
+      }
+    });
+
+    // avanzamento automatico ogni 20s
+    setInterval(() => {
+      if (
+        overlayLevel.classList.contains('hidden') &&
+        overlayHelp.classList.contains('hidden')
+      ) {
+        advanceLevel();
+      }
+    }, 20000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Evoluzione Cellulare – Game</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Overlay semi-trasparente */
+    #overlay {
+      background: rgba(0, 0, 0, 0.7);
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen">
+
+  <!-- Contenitore del Canvas -->
+  <div id="game-container" class="relative">
+    <canvas id="gameCanvas" class="border-4 border-gray-700 rounded-lg"></canvas>
+    <!-- Overlay per spiegazioni tra i livelli -->
+    <div id="overlay" class="hidden absolute inset-0 flex items-center justify-center p-6">
+      <div class="bg-gray-800 p-8 rounded-lg max-w-lg text-center">
+        <h2 id="level-title" class="text-2xl font-semibold mb-4"></h2>
+        <p id="level-desc" class="mb-6"></p>
+        <button id="nextBtn"
+                class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded">
+          Avvia Livello
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Script di gioco -->
+  <script>
+    // Configurazione iniziale
+    const canvas = document.getElementById('gameCanvas');
+    const ctx    = canvas.getContext('2d');
+    const w      = 800;   // larghezza canvas
+    const h      = 600;   // altezza canvas
+    const cols   = 80;    // colonne griglia
+    const rows   = 60;    // righe griglia
+    const cellW  = w/cols;
+    const cellH  = h/rows;
+    canvas.width  = w;
+    canvas.height = h;
+
+    // Overlay DOM
+    const overlay    = document.getElementById('overlay');
+    const titleEl    = document.getElementById('level-title');
+    const descEl     = document.getElementById('level-desc');
+    const nextBtn    = document.getElementById('nextBtn');
+
+    // Definizione dei livelli
+    const levels = [
+      {
+        title: 'Livello 1: Caos Iniziale',
+        desc:  'Guarda come semplici regole creano pattern emergenti. Premi Avvia per iniziare il caos.',
+        rule:  { birth: [3], survive: [2,3] }
+      },
+      {
+        title: 'Livello 2: Variazione',
+        desc:  'Ora aggiungiamo una regola di natalità extra: 6 vicini. Cosa succede?',
+        rule:  { birth: [3,6], survive: [2,3] }
+      },
+      {
+        title: 'Livello 3: Sfida Finale',
+        desc:  'Solo sopravvivere con 5 o 7 vicini. Riuscirai a mantenere viva la popolazione?',
+        rule:  { birth: [], survive: [5,7] }
+      }
+    ];
+
+    let grid, nextGrid;
+    let currentLevel = 0;
+    let animId;
+
+    // Crea due matrici rows×cols di celle vuote
+    function initGrid() {
+      grid     = Array.from({length: rows}, () => Array(cols).fill(0));
+      nextGrid = Array.from({length: rows}, () => Array(cols).fill(0));
+      // Popolazione casuale di partenza
+      for (let r=0; r<rows; r++) {
+        for (let c=0; c<cols; c++) {
+          grid[r][c] = Math.random() < 0.3 ? 1 : 0;
+        }
+      }
+    }
+
+    // Calcola il numero di vicini vivi
+    function countNeighbors(r, c) {
+      let sum = 0;
+      for (let dr=-1; dr<=1; dr++) {
+        for (let dc=-1; dc<=1; dc++) {
+          if (dr===0 && dc===0) continue;
+          let nr = (r + dr + rows) % rows;
+          let nc = (c + dc + cols) % cols;
+          sum += grid[nr][nc];
+        }
+      }
+      return sum;
+    }
+
+    // Aggiorna lo stato di ogni cella
+    function step() {
+      const { birth, survive } = levels[currentLevel].rule;
+      for (let r=0; r<rows; r++) {
+        for (let c=0; c<cols; c++) {
+          const alive = grid[r][c] === 1;
+          const n     = countNeighbors(r, c);
+          nextGrid[r][c] = alive
+            ? (survive.includes(n) ? 1 : 0)
+            : (birth.includes(n)  ? 1 : 0);
+        }
+      }
+      // Swap references
+      [grid, nextGrid] = [nextGrid, grid];
+    }
+
+    // Disegna il mondo sul canvas
+    function draw() {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#4ade80';  // verde chiaro
+      for (let r=0; r<rows; r++) {
+        for (let c=0; c<cols; c++) {
+          if (grid[r][c] === 1) {
+            ctx.fillRect(c*cellW, r*cellH, cellW-1, cellH-1);
+          }
+        }
+      }
+    }
+
+    // Loop principale di animazione
+    function animate() {
+      step();
+      draw();
+      animId = requestAnimationFrame(animate);
+    }
+
+    // Mostra overlay con titolo e descrizione
+    function showOverlay() {
+      const lvl = levels[currentLevel];
+      titleEl.textContent = lvl.title;
+      descEl.textContent  = lvl.desc;
+      overlay.classList.remove('hidden');
+      cancelAnimationFrame(animId);
+    }
+
+    // Nasconde overlay e avvia animazione
+    nextBtn.addEventListener('click', () => {
+      overlay.classList.add('hidden');
+      initGrid();
+      animate();
+    });
+
+    // Al caricamento mostra la schermata del primo livello
+    window.onload = () => showOverlay();
+
+    // Dopo 20 secondi di gioco, passa al livello successivo (se esiste)
+    setInterval(() => {
+      if (!overlay.classList.contains('hidden')) return;
+      currentLevel++;
+      if (currentLevel < levels.length) {
+        showOverlay();
+      } else {
+        // Fine gioco
+        cancelAnimationFrame(animId);
+        overlay.classList.remove('hidden');
+        titleEl.textContent = 'Complimenti!';
+        descEl.textContent  = 'Hai esplorato tutte le evoluzioni.';
+        nextBtn.textContent = 'Ricomincia';
+        nextBtn.onclick      = () => {
+          currentLevel = 0;
+          nextBtn.textContent = 'Avvia Livello';
+          showOverlay();
+        };
+      }
+    }, 20000);
+
+  </script>
+</body>
+</html>
